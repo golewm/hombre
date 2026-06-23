@@ -26,6 +26,7 @@
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.2);
   --font: "Roboto Mono", "Courier New", monospace;
   --transition: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --sidebar-bg: #000d19;
   --sidebar-w: 220px;
 }
 
@@ -59,7 +60,7 @@ a:hover { color: var(--accent-hover); }
 .sidebar {
   width: var(--sidebar-w);
   min-width: var(--sidebar-w);
-  background: var(--surface);
+  background: var(--sidebar-bg);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -77,6 +78,10 @@ a:hover { color: var(--accent-hover); }
   width: 100%;
   height: auto;
   display: block;
+}
+
+.sidebar .input {
+  background: var(--sidebar-bg);
 }
 
 .nav-section {
