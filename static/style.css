@@ -71,6 +71,12 @@ a:hover { color: var(--accent-hover); }
   padding: 0 20px 20px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+}
+
+.sidebar-logo img {
+  flex-shrink: 0;
 }
 
 .sidebar-logo h1 {
