@@ -14,7 +14,7 @@ Honcho is open source. You can run the server yourself. But the dashboard — th
 
 This project fixes that. A full GUI for managing workspaces, peers, sessions, chat, and configuration. No accounts, no hosted service, no gatekeeping.
 
-It was built 100% using AI coding tools ([OpenCode](https://opencode.ai) + [MiMo](https://huggingface.co)) — no manual coding, no shame.
+It was built 100% using AI coding tools ([OpenCode](https://opencode.ai) + [MiMo](https://huggingface.co/XiaomiMiMo/MiMo-V2.5)) — no manual coding, no shame.
 
 ## Features
 
