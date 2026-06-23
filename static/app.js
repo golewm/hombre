@@ -238,7 +238,10 @@ const Modal = {
     const confirmBtn = document.createElement('button');
     confirmBtn.className = confirmClass;
     confirmBtn.textContent = confirmText;
-    confirmBtn.addEventListener('click', () => onConfirm());
+    confirmBtn.addEventListener('click', async () => {
+      confirmBtn.disabled = true;
+      try { await onConfirm(); } finally { confirmBtn.disabled = false; }
+    });
     actions.appendChild(confirmBtn);
 
     modal.appendChild(actions);
@@ -354,7 +357,11 @@ const OverviewTab = {
           try {
             await App.api(`workspaces/${wsId}`, { method: 'DELETE' });
             Modal.close();
-            await App.loadWorkspaces();
+            App.state.workspaces = App.state.workspaces.filter(w => w.id !== wsId);
+            if (App.state.workspace?.id === wsId) {
+              App.state.workspace = App.state.workspaces[0] || null;
+            }
+            App.renderWorkspaceSelect();
             App.renderTab(App.state.activeTab);
           } catch (e) {
             Modal.close();
@@ -601,7 +608,7 @@ const SessionsTab = {
           try {
             await App.api(`workspaces/${ws.id}/sessions/${sessionId}`, { method: 'DELETE' });
             Modal.close();
-            await App.loadPeersAndSessions();
+            App.state.sessions = App.state.sessions.filter(s => s.id !== sessionId);
             App.renderTab(App.state.activeTab);
           } catch (e) {
             Modal.close();
