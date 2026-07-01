@@ -40,6 +40,7 @@ Built entirely with AI coding tools ([OpenCode](https://opencode.ai) + [MiMo](ht
 - **Security** — role-based access control (admin/editor/viewer), rate limiting, audit logging
 - **Typing Indicator** — animated dots while the model is thinking
 - **Pagination** — load-more pattern for conclusions and messages
+- **Supabase Integration** — optional Supabase support for auth, database storage, and real-time features
 
 ## Prerequisites
 
@@ -128,6 +129,9 @@ docker compose up -d
 | `DASHBOARD_ROLE` | No | `admin` | Role for single-user mode: `admin`, `editor`, or `viewer` |
 | `DASHBOARD_USERS` | No | *(empty)* | Multi-user config: `user1:pass1:admin,user2:pass2:viewer` |
 | `HOMBRE_LOG_DIR` | No | `logs` | Directory for access and audit logs |
+| `SUPABASE_URL` | No | *(empty)* | Supabase project URL (enables Supabase integration) |
+| `SUPABASE_KEY` | No | *(empty)* | Supabase anon/public key |
+| `SUPABASE_SERVICE_KEY` | No | *(empty)* | Supabase service role key (for admin operations) |
 
 > **Note:** `HONCHO_ENV_PATH` and `HONCHO_COMPOSE_DIR` are optional. The app starts without them, but the Settings tab won't work until they're set.
 
@@ -155,6 +159,7 @@ The settings tab reads and writes the Honcho `.env` configuration file. Changes 
 ## Security
 
 - **Basic Auth** — Set `DASHBOARD_USER` and `DASHBOARD_PASSWORD` to enable HTTP Basic Auth. Without these, the dashboard is unauthenticated.
+- **Supabase Auth** — Set `SUPABASE_URL`, `SUPABASE_KEY`, and `SUPABASE_SERVICE_KEY` to enable Supabase authentication with email/password and magic links. Falls back to Basic Auth when not configured.
 - **Role-Based Access** — Three roles: `admin` (full access), `editor` (create/edit/read), `viewer` (read-only). Configure via `DASHBOARD_ROLE` or `DASHBOARD_USERS`.
 - **Rate Limiting** — In-memory sliding window rate limiter. Returns 429 with Retry-After header.
 - **Audit Logging** — All settings changes logged to `logs/audit.log` with username and changed keys.

@@ -29,15 +29,17 @@ node --check static/app.js
 
 ## File Locations
 
-- `app.py` — FastAPI backend (auth, proxy, health, chat streaming, pagination helpers)
+- `app.py` — FastAPI backend (auth, proxy, routes, pagination)
 - `routes/__init__.py` — Package marker
-- `routes/security.py` — Security middleware (rate limiting, RBAC auth, request logging, security headers)
+- `routes/supabase.py` — Supabase client initialization (optional integration)
+- `routes/security.py` — Security middleware (rate limiting, RBAC auth, Supabase JWT auth, request logging)
 - `routes/settings.py` — Settings API (read/write `.env`, restart containers, audit logging)
-- `routes/deletes.py` — Soft-delete registry for peers/messages/conclusions
-- `routes/notifications.py` — Notification system for workspace events
+- `routes/deletes.py` — Soft-delete registry (Supabase or JSON file storage)
+- `routes/notifications.py` — Notification system (Supabase or JSON file storage)
 - `routes/export.py` — Export/Import API (workspace data to/from portable JSON)
-- `data/deleted.json` — Soft-deleted resource IDs (auto-created)
-- `data/notifications.json` — Recent notifications (auto-created)
+- `schema/supabase.sql` — SQL schema for Supabase tables (soft_deletes, notifications, audit_logs)
+- `data/deleted.json` — Soft-deleted resource IDs (auto-created, used when Supabase not configured)
+- `data/notifications.json` — Recent notifications (auto-created, used when Supabase not configured)
 - `static/app.js` — All frontend logic (7 tab modules, Modal, App, notifications)
 - `static/style.css` — Dark theme CSS
 - `static/index.html` — SPA shell with sidebar nav and notification bell
@@ -103,6 +105,12 @@ node --check static/app.js
 - `POST /api/export/import/workspace` — Upload JSON export file for preview and conflict detection (multipart form)
 - `POST /api/export/import/confirm` — Confirm import with conflict resolution (body: `{workspace_id, data, id_mapping, conflict_strategy}`)
 
+### Supabase Auth (`routes/security.py` — when Supabase configured)
+- `GET /api/auth/status` — Check if Supabase is configured and get current user
+- `POST /api/auth/login` — Login with email/password (body: `{email, password}`)
+- `POST /api/auth/magic-link` — Send magic link (body: `{email}`)
+- `POST /api/auth/logout` — Logout current user
+
 ## Environment
 
 - `HONCHO_URL` — Honcho server URL (default: `http://localhost:8000`)
@@ -113,6 +121,9 @@ node --check static/app.js
 - `DASHBOARD_ROLE` — Role for single user (default: `admin`)
 - `DASHBOARD_USERS` — Multi-user config: `user1:pass1:admin,user2:pass2:viewer`
 - `HOMBRE_LOG_DIR` — Log directory (default: `logs`)
+- `SUPABASE_URL` — Supabase project URL (optional, enables Supabase integration)
+- `SUPABASE_KEY` — Supabase anon/public key (required with SUPABASE_URL)
+- `SUPABASE_SERVICE_KEY` — Supabase service role key (optional, for admin operations)
 
 ## Security Notes
 

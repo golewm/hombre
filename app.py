@@ -21,7 +21,9 @@ from routes.security import (
     RequestLoggingMiddleware,
     RoleBasedAuthMiddleware,
     EnhancedSecurityHeadersMiddleware,
+    SupabaseAuthMiddleware,
 )
+from routes.supabase import is_configured as supabase_configured
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("hombre")
@@ -45,6 +47,12 @@ async def lifespan(app: FastAPI):
         log.warning("No auth configured — open access mode")
     else:
         log.info("Auth enabled: %d user(s) configured", len(users))
+
+    if supabase_configured():
+        log.info("Supabase integration enabled — using Supabase for storage and auth")
+    else:
+        log.info("Supabase not configured — using file-based storage")
+
     default_headers = {}
     if HONCHO_API_KEY:
         default_headers["Authorization"] = f"Bearer {HONCHO_API_KEY}"
@@ -67,10 +75,11 @@ app = FastAPI(
 )
 
 # Security middleware stack — order matters.
-# Outermost first: headers → logging → rate limiting → auth
+# Outermost first: headers → logging → rate limiting → supabase auth → role-based auth
 app.add_middleware(EnhancedSecurityHeadersMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(SupabaseAuthMiddleware)
 app.add_middleware(RoleBasedAuthMiddleware)
 
 

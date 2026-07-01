@@ -9,6 +9,8 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from routes.supabase import get_admin_client, is_admin_configured
+
 log = logging.getLogger("hombre")
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -61,8 +63,14 @@ AUDIT_LOG_FILE = AUDIT_LOG_DIR / "audit.log"
 
 def _audit(action: str, user: str = "", detail: str = "") -> None:
     """Append an audit entry to the audit log."""
-    AUDIT_LOG_DIR.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc).isoformat()
+
+    # --- Supabase path ---
+    if is_admin_configured():
+        _audit_supabase(action, user, detail, now)
+
+    # --- File-based logging (always, as backup) ---
+    AUDIT_LOG_DIR.mkdir(parents=True, exist_ok=True)
     parts = [now, action]
     if user:
         parts.append(f"user={user}")
@@ -74,6 +82,25 @@ def _audit(action: str, user: str = "", detail: str = "") -> None:
             f.write(line)
     except OSError as e:
         log.warning("Failed to write audit log: %s", e)
+
+
+def _audit_supabase(action: str, user: str, detail: str, timestamp: str) -> None:
+    """Insert an audit log entry into Supabase."""
+    client = get_admin_client()
+    if not client:
+        return
+
+    try:
+        details = {"raw": detail} if detail else {}
+        client.table("audit_logs").insert(
+            {
+                "action": action,
+                "username": user or None,
+                "details": details if details else None,
+            }
+        ).execute()
+    except Exception as e:
+        log.warning("Failed to write audit log to Supabase: %s", e)
 
 
 def _get_user(request: Request) -> str:

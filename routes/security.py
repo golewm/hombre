@@ -29,6 +29,8 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
+from routes.supabase import get_admin_client, is_configured as supabase_configured
+
 log = logging.getLogger("hombre")
 
 # ---------------------------------------------------------------------------
@@ -417,3 +419,75 @@ class EnhancedSecurityHeadersMiddleware(BaseHTTPMiddleware):
         )
 
         return response
+
+
+# ---------------------------------------------------------------------------
+# Middleware: Supabase JWT Authentication
+# ---------------------------------------------------------------------------
+
+class SupabaseAuthMiddleware(BaseHTTPMiddleware):
+    """
+    Authenticate requests using Supabase JWT tokens.
+
+    If Supabase is not configured, this middleware is a no-op and passes
+    requests through to the next middleware (Basic Auth, etc.).
+
+    Sets request.state.user, request.state.role, request.state.permissions
+    on successful auth.
+    """
+
+    # Map Supabase roles to Hombre permission sets
+    _ROLE_MAP = {
+        "admin":  ROLE_PERMISSIONS["admin"],
+        "editor": ROLE_PERMISSIONS["editor"],
+        "viewer": ROLE_PERMISSIONS["viewer"],
+    }
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        # Skip if Supabase not configured
+        if not supabase_configured():
+            return await call_next(request)
+
+        # Skip health and static
+        if request.url.path.startswith("/static") or request.url.path == "/api/health":
+            return await call_next(request)
+
+        # Get Authorization header
+        auth = request.headers.get("authorization", "")
+
+        # Check for Bearer token (Supabase JWT)
+        if auth.startswith("Bearer "):
+            token = auth[7:]
+            try:
+                client = get_admin_client()
+                if not client:
+                    log.warning("Supabase client not available for auth")
+                    return await call_next(request)
+
+                user = client.auth.get_user(token)
+                if user and user.user:
+                    request.state.user = user.user.email or user.user.id or "supabase_user"
+                    request.state.role = self._get_role(user.user)
+                    request.state.permissions = self._ROLE_MAP.get(
+                        request.state.role, ROLE_PERMISSIONS["viewer"]
+                    )
+                    log.debug("Supabase auth: user=%s role=%s", request.state.user, request.state.role)
+                    return await call_next(request)
+                else:
+                    log.warning("Supabase auth: no user returned")
+                    return JSONResponse({"error": "unauthorized"}, status_code=401)
+            except Exception as e:
+                log.warning("Supabase auth failed: %s", e)
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+        # Fall through to other auth methods (Basic Auth, etc.)
+        return await call_next(request)
+
+    def _get_role(self, user) -> str:
+        """Determine user role from Supabase user metadata."""
+        # Check user metadata for role, default to 'viewer'
+        metadata = getattr(user, "user_metadata", {}) or {}
+        role = metadata.get("role", "viewer")
+        if role not in self._ROLE_MAP:
+            role = "viewer"
+        return role

@@ -5,6 +5,8 @@ const App = {
     workspaces: [],
     peers: [],
     sessions: [],
+    user: null,
+    supabaseConfigured: false,
   },
 
   async init() {
@@ -12,6 +14,7 @@ const App = {
     this.bindEventDelegation();
     this.bindWorkspaceSelect();
     this.initNotifications();
+    await this.checkSupabaseAuth();
     await this.checkHealth();
     await this.loadWorkspaces();
     await this.loadPeersAndSessions();
@@ -56,6 +59,14 @@ const App = {
     document.getElementById('modal-root').addEventListener('click', (e) => {
       const overlay = e.target.closest('.modal-overlay');
       if (e.target === overlay) Modal.close();
+    });
+
+    document.querySelector('.sidebar-footer').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      if (action === 'show-login') App.showLogin();
+      else if (action === 'logout') App.logout();
     });
   },
 
@@ -105,6 +116,19 @@ const App = {
       dot.className = 'health-dot err';
       text.textContent = 'Unreachable';
     }
+  },
+
+  async checkSupabaseAuth() {
+    try {
+      const r = await fetch('/api/auth/status');
+      const d = await r.json();
+      this.state.supabaseConfigured = d.configured || false;
+      this.state.user = d.user || null;
+    } catch {
+      this.state.supabaseConfigured = false;
+      this.state.user = null;
+    }
+    this.updateAuthUI();
   },
 
   async loadWorkspaces() {
@@ -172,6 +196,10 @@ const App = {
   async api(path, opts = {}) {
     const method = opts.method || 'POST';
     const fetchOpts = { method, headers: { 'Content-Type': 'application/json' } };
+    const token = localStorage.getItem('hombre_auth_token');
+    if (token) {
+      fetchOpts.headers['Authorization'] = `Bearer ${token}`;
+    }
     if (opts.body !== undefined && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
       fetchOpts.body = JSON.stringify(opts.body);
     }
@@ -182,6 +210,119 @@ const App = {
       throw new Error(msg);
     }
     return r.json();
+  },
+
+  /* ─── Auth Methods ─── */
+  showLogin() {
+    if (!this.state.supabaseConfigured) {
+      this.toast('Supabase auth is not configured', 'warning');
+      return;
+    }
+
+    const emailLabel = document.createElement('label');
+    emailLabel.textContent = 'Email';
+    const emailInput = document.createElement('input');
+    emailInput.type = 'email';
+    emailInput.id = 'modal-email';
+    emailInput.className = 'input mt-2';
+    emailInput.placeholder = 'you@example.com';
+
+    const passLabel = document.createElement('label');
+    passLabel.className = 'mt-3';
+    passLabel.textContent = 'Password';
+    const passInput = document.createElement('input');
+    passInput.type = 'password';
+    passInput.id = 'modal-password';
+    passInput.className = 'input mt-2';
+    passInput.placeholder = 'Your password';
+
+    const divider = document.createElement('div');
+    divider.className = 'mt-3 mb-2';
+    divider.style.cssText = 'display:flex;align-items:center;gap:8px;color:var(--text-dim);font-size:11px';
+    divider.innerHTML = '<span style="flex:1;border-top:1px solid var(--border)"></span><span>or</span><span style="flex:1;border-top:1px solid var(--border)"></span>';
+
+    const magicBtn = document.createElement('button');
+    magicBtn.className = 'btn btn-ghost w-full mt-2';
+    magicBtn.textContent = 'Send Magic Link';
+    magicBtn.addEventListener('click', () => this.sendMagicLink());
+
+    Modal.show('Sign In', [emailLabel, emailInput, passLabel, passInput, divider, magicBtn], () => this.loginWithEmail());
+  },
+
+  async loginWithEmail() {
+    const email = document.getElementById('modal-email')?.value.trim();
+    const password = document.getElementById('modal-password')?.value;
+    if (!email || !password) {
+      this.toast('Email and password are required', 'warning');
+      return;
+    }
+
+    try {
+      const data = await this.api('auth/login', { body: { email, password } });
+      if (data.token) {
+        localStorage.setItem('hombre_auth_token', data.token);
+      }
+      this.state.user = data.user || { email };
+      this.updateAuthUI();
+      Modal.close();
+      this.toast('Signed in successfully', 'success');
+    } catch (e) {
+      this.toast(`Login failed: ${e.message}`, 'error');
+    }
+  },
+
+  async sendMagicLink() {
+    const email = document.getElementById('modal-email')?.value.trim();
+    if (!email) {
+      this.toast('Enter your email first', 'warning');
+      return;
+    }
+
+    try {
+      await this.api('auth/magic-link', { body: { email } });
+      this.toast('Magic link sent! Check your inbox.', 'success');
+    } catch (e) {
+      this.toast(`Failed to send magic link: ${e.message}`, 'error');
+    }
+  },
+
+  async logout() {
+    try {
+      await this.api('auth/logout', { body: {} });
+    } catch {}
+    localStorage.removeItem('hombre_auth_token');
+    this.state.user = null;
+    this.updateAuthUI();
+    this.toast('Signed out', 'info');
+  },
+
+  updateAuthUI() {
+    const container = document.getElementById('auth-section');
+    if (!container) return;
+
+    if (!this.state.supabaseConfigured) {
+      container.innerHTML = '';
+      container.classList.add('hidden');
+      return;
+    }
+
+    container.classList.remove('hidden');
+
+    if (this.state.user) {
+      const email = this.state.user.email || 'user';
+      const initials = email.charAt(0).toUpperCase();
+      container.innerHTML = `
+        <div class="auth-user">
+          <div class="auth-avatar">${this.escapeHtml(initials)}</div>
+          <span class="auth-name">${this.escapeHtml(email)}</span>
+        </div>
+        <button class="btn btn-ghost btn-sm w-full" data-action="logout">Sign Out</button>
+      `;
+    } else {
+      container.innerHTML = `
+        <button class="btn btn-ghost btn-sm w-full" data-action="show-login">Sign In</button>
+      `;
+    }
   },
 
   formatDate(iso) {
