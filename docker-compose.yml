@@ -4,10 +4,10 @@ services:
     container_name: hombre
     ports:
       - "5000:5000"
+    env_file:
+      - .env
     environment:
       - HONCHO_URL=http://host.docker.internal:8000
-      - HONCHO_ENV_PATH=/path/to/honcho/.env
-      - HONCHO_COMPOSE_DIR=/path/to/honcho
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
