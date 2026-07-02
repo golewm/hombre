@@ -13,7 +13,6 @@ const App = {
     this.bindNav();
     this.bindEventDelegation();
     this.bindWorkspaceSelect();
-    this.initNotifications();
     await this.checkSupabaseAuth();
     await this.checkHealth();
     await this.loadWorkspaces();
@@ -377,126 +376,7 @@ const App = {
     }
   },
 
-  /* ─── Notifications ─── */
-  notificationPollInterval: null,
 
-  initNotifications() {
-    const bell = document.getElementById('notification-bell');
-    const panel = document.getElementById('notification-panel');
-    const clearBtn = document.getElementById('notification-clear');
-
-    if (!bell || !panel) return;
-
-    bell.addEventListener('click', (e) => {
-      e.stopPropagation();
-      panel.classList.toggle('hidden');
-      if (!panel.classList.contains('hidden')) {
-        this.loadNotifications();
-      }
-    });
-
-    bell.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        bell.click();
-      }
-    });
-
-    clearBtn.addEventListener('click', () => this.clearAllNotifications());
-
-    // Close panel when clicking outside
-    document.addEventListener('click', (e) => {
-      if (!panel.contains(e.target) && !bell.contains(e.target)) {
-        panel.classList.add('hidden');
-      }
-    });
-
-    // Poll for notifications every 30 seconds
-    this.pollNotifications();
-    this.notificationPollInterval = setInterval(() => this.pollNotifications(), 30000);
-  },
-
-  async pollNotifications() {
-    try {
-      const data = await this.api('notifications', { method: 'GET' });
-      const notifications = data.items || [];
-      const badge = document.getElementById('notification-badge');
-      if (badge) {
-        if (notifications.length > 0) {
-          badge.textContent = notifications.length > 9 ? '9+' : notifications.length;
-          badge.classList.remove('hidden');
-        } else {
-          badge.classList.add('hidden');
-        }
-      }
-      this.state.notifications = notifications;
-    } catch {
-      // Silently fail - notifications are non-critical
-    }
-  },
-
-  async loadNotifications() {
-    const list = document.getElementById('notification-list');
-    if (!list) return;
-
-    const notifications = this.state.notifications || [];
-
-    if (notifications.length === 0) {
-      list.innerHTML = '<div class="text-xs text-muted" style="padding:12px;text-align:center">No notifications</div>';
-      return;
-    }
-
-    list.innerHTML = notifications.map(n => `
-      <div class="notification-item" data-id="${this.escapeAttr(n.id)}">
-        <div class="notification-icon">${this.getNotificationIcon(n.type)}</div>
-        <div class="notification-content">
-          <div class="notification-message">${this.escapeHtml(n.message)}</div>
-          <div class="notification-time">${this.formatDateTime(n.created_at)}</div>
-        </div>
-        <button class="notification-dismiss" data-action="dismiss-notification" data-id="${this.escapeAttr(n.id)}" aria-label="Dismiss">&times;</button>
-      </div>
-    `).join('');
-
-    // Bind dismiss buttons
-    list.querySelectorAll('[data-action="dismiss-notification"]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.dismissNotification(btn.dataset.id);
-      });
-    });
-  },
-
-  getNotificationIcon(type) {
-    const icons = {
-      'conclusion_created': '&#128161;',
-      'workspace_event': '&#128193;',
-      'info': '&#8505;&#65039;',
-    };
-    return icons[type] || icons['info'];
-  },
-
-  async dismissNotification(id) {
-    try {
-      await this.api('notifications/dismiss', { body: { id } });
-      this.state.notifications = (this.state.notifications || []).filter(n => n.id !== id);
-      this.loadNotifications();
-      this.pollNotifications();
-    } catch {
-      this.toast('Failed to dismiss notification', 'error');
-    }
-  },
-
-  async clearAllNotifications() {
-    const notifications = this.state.notifications || [];
-    for (const n of notifications) {
-      try {
-        await this.api('notifications/dismiss', { body: { id: n.id } });
-      } catch {}
-    }
-    this.state.notifications = [];
-    this.loadNotifications();
-    this.pollNotifications();
-  }
 };
 
 /* ─── Modal ─── */

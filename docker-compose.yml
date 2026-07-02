@@ -8,6 +8,11 @@ services:
       - .env
     environment:
       - HONCHO_URL=http://host.docker.internal:8000
+      - HONCHO_ENV_PATH=/home/reposed/docker/honcho/.env
+      - HONCHO_COMPOSE_DIR=/home/reposed/docker/honcho
+    volumes:
+      - /home/reposed/docker/honcho/.env:/home/reposed/docker/honcho/.env:ro
+      - /home/reposed/docker/honcho:/home/reposed/docker/honcho:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
