@@ -1517,6 +1517,14 @@ const ConclusionsTab = {
 
     const ws = App.state.workspace;
     const results = document.getElementById('conclusion-results');
+    if (!results) return;
+
+    // Reset state for new search
+    this.state.items = [];
+    this.state.allLoaded = false;
+    this.state.offset = 0;
+    this.state.currentQuery = query;
+
     results.innerHTML = '<div class="loading-overlay"><div class="spinner"></div> Searching...</div>';
 
     try {
@@ -1559,11 +1567,13 @@ const ConclusionsTab = {
       const allResults = [...filteredSemanticResults, ...extraMatches];
       this.state.items = allResults;
       this.state.allLoaded = true;
-      this.state.offset = 0;
-      this.state.currentQuery = query;
       this.renderResults(results, allResults);
-    } catch {
-      results.innerHTML = '<div class="text-sm text-muted">Search failed</div>';
+    } catch (e) {
+      console.error('Search failed:', e);
+      this.state.items = [];
+      this.state.allLoaded = false;
+      this.state.currentQuery = null;
+      results.innerHTML = '<div class="text-sm text-muted">Search failed — try a different term</div>';
     }
   },
 
