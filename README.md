@@ -32,6 +32,7 @@ Built entirely with AI coding tools ([OpenCode](https://opencode.ai) + [MiMo](ht
 - **Conclusions** — browse and semantic search reasoning/memory with pagination and type filtering
 - **Messages** — browse messages across all sessions with pagination
 - **Settings** — configure LLM providers, embedding models, dialectic levels, and more
+- **Credential Management** — manage dashboard credentials (username, password, role) from the Settings page under "Dashboard Access"
 - **Workspace Merge** — merge two workspaces with conflict detection and resolution
 
 ### Additional Features
@@ -82,7 +83,11 @@ Dashboard runs at `http://localhost:5000`.
 
 ### Option 2: Docker
 
-The repo includes a `docker-compose.yml` ready to go. Edit the environment variables to match your setup:
+The deployment folder at `~/docker/hombre/` contains only deployment files (`docker-compose.yml`, `.env`, `.env.example`, `.gitignore`, and `LICENSE`). No source code lives there.
+
+The Docker image is built from the dev repo (`~/brandx/hombre/`) and pushed to `ghcr.io/lovethatbrandx/hombre/hombre:latest`.
+
+Edit the environment variables in your `~/docker/hombre/.env` file to match your setup:
 
 ```yaml
 services:
@@ -108,12 +113,14 @@ services:
 Then run:
 
 ```bash
+cd ~/docker/hombre
 docker compose up -d
 ```
 
 To update:
 
 ```bash
+cd ~/docker/hombre
 docker compose pull
 docker compose up -d
 ```
@@ -149,6 +156,7 @@ The settings tab reads and writes the Honcho `.env` configuration file. Changes 
 - **Dialectic Levels** — minimal/low/medium/high/max reasoning levels
 - **Summary** — summary generation model config
 - **Dream** — deduction and induction model configs
+- **Dashboard Access** — manage dashboard credentials (username, password, role) directly from the UI without editing env vars
 
 ### How It Works
 
@@ -158,12 +166,16 @@ The settings tab reads and writes the Honcho `.env` configuration file. Changes 
 4. "Apply & Restart" writes to `.env` and runs `docker compose up -d --force-recreate`
 5. "Restore Backup" reverts to the previous `.env.bak`
 
+### Credential Management
+
+The "Dashboard Access" section in Settings allows you to manage user credentials without manually editing environment variables. Changes are saved via the new `POST /api/settings/users` endpoint.
+
 ## Security
 
-- **Basic Auth** — Set `DASHBOARD_USER` and `DASHBOARD_PASSWORD` to enable HTTP Basic Auth. Without these, the dashboard is unauthenticated.
+- **Basic Auth** — Set `DASHBOARD_USER` and `DASHBOARD_PASSWORD` to enable HTTP Basic Auth. Without these, the dashboard is unauthenticated. Credentials can also be managed from the Settings page under "Dashboard Access".
 - **Supabase Auth** — Set `SUPABASE_URL`, `SUPABASE_KEY`, and `SUPABASE_SERVICE_KEY` to enable Supabase authentication with email/password and magic links. Falls back to Basic Auth when not configured.
 - **Role-Based Access** — Three roles: `admin` (full access), `editor` (create/edit/read), `viewer` (read-only). Configure via `DASHBOARD_ROLE` or `DASHBOARD_USERS`.
-- **Rate Limiting** — In-memory sliding window rate limiter. Returns 429 with Retry-After header.
+- **Rate Limiting** — In-memory sliding window rate limiter. Returns 429 with Retry-After header. `/api/settings/` and `/api/workspaces/` endpoints support up to 30 requests/minute.
 - **Audit Logging** — All settings changes logged to `logs/audit.log` with username and changed keys.
 - **Request Logging** — All API requests logged to `logs/access.log` with timing and user info.
 - **Bind address** — Binds to `0.0.0.0:5000` (all interfaces). Use a firewall or reverse proxy for production.

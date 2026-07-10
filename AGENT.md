@@ -32,19 +32,19 @@ node --check static/app.js
 - `app.py` — FastAPI backend (auth, proxy, routes, pagination)
 - `routes/__init__.py` — Package marker
 - `routes/supabase.py` — Supabase client initialization (optional integration)
-- `routes/security.py` — Security middleware (rate limiting, RBAC auth, Supabase JWT auth, request logging)
-- `routes/settings.py` — Settings API (read/write `.env`, restart containers, audit logging)
+- `routes/security.py` — Security middleware (rate limiting, RBAC auth, Supabase JWT auth, request logging, shared user cache)
+- `routes/settings.py` — Settings API (read/write `.env`, restart containers, audit logging, user management)
 - `routes/deletes.py` — Soft-delete registry (Supabase or JSON file storage)
 - `routes/notifications.py` — Notification system (Supabase or JSON file storage)
 - `routes/export.py` — Export/Import API (workspace data to/from portable JSON)
 - `schema/supabase.sql` — SQL schema for Supabase tables (soft_deletes, notifications, audit_logs)
 - `data/deleted.json` — Soft-deleted resource IDs (auto-created, used when Supabase not configured)
 - `data/notifications.json` — Recent notifications (auto-created, used when Supabase not configured)
-- `static/app.js` — All frontend logic (7 tab modules, Modal, App, notifications)
-- `static/style.css` — Dark theme CSS
+- `static/app.js` — All frontend logic (7 tab modules, Modal, App, notifications, 429 handling, credentials UI)
+- `static/style.css` — Dark theme CSS (includes credential row styles)
 - `static/index.html` — SPA shell with sidebar nav and notification bell
-- `Dockerfile` — Python 3.12-slim, EXPOSE 5000
-- `docker-compose.yml` — Port 5000:5000, healthcheck
+- `Dockerfile` — Python 3.12-slim, EXPOSE 5000 (built from dev repo, pushed to ghcr.io/lovethatbrandx/hombre/hombre:latest)
+- `docker-compose.yml` — Port 5000:5000, healthcheck (also exists in `~/docker/hombre/` deployment folder)
 - `docs/API.md` — Complete API reference (all endpoints, request/response formats)
 - `docs/FEATURES.md` — Feature documentation (workspace, peers, sessions, chat, conclusions, export/import)
 - `docs/DEPLOYMENT.md` — Deployment guide (Docker, local dev, env vars, troubleshooting)
@@ -115,6 +115,10 @@ node --check static/app.js
 - `POST /api/auth/magic-link` — Send magic link (body: `{email}`)
 - `POST /api/auth/logout` — Logout current user
 
+### User Management (`routes/settings.py`)
+- `GET /api/settings/users` — List dashboard users (cached in memory)
+- `POST /api/settings/users` — Update dashboard users (body: `{users: [{username, password, role}, ...]}`)
+
 ## Environment
 
 - `HONCHO_URL` — Honcho server URL (default: `http://localhost:8000`)
@@ -144,8 +148,8 @@ node --check static/app.js
 
 | Endpoint | Limit |
 |---|---|
-| `/api/settings/*` | 5 req/min |
-| `/api/workspaces/*` | 5 req/min |
+| `/api/settings/*` | 30 req/min |
+| `/api/workspaces/*` | 30 req/min |
 | `/api/peers/*` | 30 req/min |
 | `/api/sessions/*` | 30 req/min |
 | `/api/messages/*` | 30 req/min |
@@ -154,6 +158,8 @@ node --check static/app.js
 
 - Returns `429 Too Many Requests` with `Retry-After` header
 - Rate limit key: client IP + auth token prefix
+- Frontend gracefully handles 429 responses (preserves existing data, shows toast notification)
+- The `/` index route does not require authentication (no Basic auth prompt on page load)
 
 ### Request Logging
 
