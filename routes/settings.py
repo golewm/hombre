@@ -255,6 +255,9 @@ async def write_settings(req: SettingsWriteRequest, request: Request):
     return {"status": "ok", "env_path": HONCHO_ENV_PATH}
 
 
+BACKUP_DIR = Path(os.environ.get("HOMBRE_BACKUP_DIR", "/app/data/backups"))
+
+
 @router.post("/backup")
 async def create_backup(request: Request):
     _require_env_path()
@@ -262,10 +265,11 @@ async def create_backup(request: Request):
     env_path = Path(HONCHO_ENV_PATH)
     if not env_path.exists():
         raise HTTPException(status_code=404, detail="env_file_not_found")
-    backup_path = env_path.parent / (env_path.name + ".bak")
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    backup_path = BACKUP_DIR / (env_path.name + ".bak")
     shutil.copy2(env_path, backup_path)
     _audit("settings.backup", user=user)
-    return {"status": "backed up"}
+    return {"status": "backed up", "backup_path": str(backup_path)}
 
 
 @router.post("/restore")
@@ -273,7 +277,7 @@ async def restore_backup(request: Request):
     _require_env_path()
     user = _get_user(request)
     env_path = Path(HONCHO_ENV_PATH)
-    backup_path = env_path.parent / (env_path.name + ".bak")
+    backup_path = BACKUP_DIR / (env_path.name + ".bak")
     if not backup_path.exists():
         raise HTTPException(status_code=404, detail="backup_not_found")
     shutil.copy2(backup_path, env_path)
