@@ -150,7 +150,13 @@ const App = {
       } else if (this.state.workspaces.length > 0) {
         this.state.workspace = this.state.workspaces[0];
       }
-    } catch { this.state.workspaces = []; }
+    } catch (err) {
+      if (this.isRateLimited(err)) {
+        this.toast('Rate limited — try again in a moment', 'warning');
+      } else {
+        this.state.workspaces = [];
+      }
+    }
     this.renderWorkspaceSelect();
   },
 
@@ -172,9 +178,13 @@ const App = {
       ]);
       this.state.peers = peers.items || [];
       this.state.sessions = sessions.items || [];
-    } catch {
-      this.state.peers = [];
-      this.state.sessions = [];
+    } catch (err) {
+      if (this.isRateLimited(err)) {
+        this.toast('Rate limited — try again in a moment', 'warning');
+      } else {
+        this.state.peers = [];
+        this.state.sessions = [];
+      }
     }
   },
 
@@ -340,6 +350,11 @@ const App = {
 
   escapeAttr(s) {
     return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  },
+
+  /* ─── Error Helpers ─── */
+  isRateLimited(err) {
+    return err && err.message && err.message.includes('API error: 429');
   },
 
   /* ─── Toast Notifications ─── */
@@ -1757,6 +1772,8 @@ const MessagesTab = {
 const SettingsTab = {
   dirty: {},
   original: {},
+  users: [],
+  usersDirty: false,
   mergeState: {
     sourceWorkspace: '',
     targetWorkspace: '',
@@ -1769,34 +1786,68 @@ const SettingsTab = {
     el.innerHTML = `
       <div class="tab-header">
         <h2>Settings</h2>
-        <p>Configure Honcho server models and providers</p>
+        <p>Configure dashboard access and Honcho server models</p>
       </div>
       <div class="loading-overlay"><div class="spinner"></div> Loading settings...</div>
     `;
 
-    try {
-      const res = await fetch('/api/settings/read');
-      if (!res.ok) {
-        const err = await res.json();
-        if (err.detail === 'env_file_not_found') {
-          el.innerHTML = `
-            <div class="tab-header"><h2>Settings</h2><p>Configure Honcho server models and providers</p></div>
-            <div class="empty-state">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
-              <h3>Configuration file not found</h3>
-              <p>Set HONCHO_ENV_PATH to point to your .env file</p>
-            </div>`;
-          return;
-        }
-        throw new Error('Failed to load settings');
+    // Load users and settings in parallel
+    const [settingsResult, usersResult] = await Promise.allSettled([
+      fetch('/api/settings/read'),
+      fetch('/api/settings/users'),
+    ]);
+
+    // Handle settings load
+    if (settingsResult.status === 'rejected' || !settingsResult.value.ok) {
+      let msg = 'Failed to load settings';
+      try {
+        const err = settingsResult.value ? await settingsResult.value.json() : {};
+        if (err.detail === 'env_file_not_found') msg = 'env_file_not_found';
+      } catch {}
+      if (msg === 'env_file_not_found') {
+        el.innerHTML = `
+          <div class="tab-header"><h2>Settings</h2><p>Configure dashboard access and Honcho server models</p></div>
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+            <h3>Configuration file not found</h3>
+            <p>Set HONCHO_ENV_PATH to point to your .env file</p>
+          </div>`;
+        return;
       }
-      const data = await res.json();
+      el.innerHTML = `
+        <div class="tab-header"><h2>Settings</h2><p>Configure dashboard access and Honcho server models</p></div>
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+          <h3>Failed to load settings</h3>
+          <p>${App.escapeHtml(msg)}</p>
+        </div>`;
+      return;
+    }
+
+    // Parse users
+    this.users = [];
+    this.usersDirty = false;
+    if (usersResult.status === 'fulfilled' && usersResult.value.ok) {
+      try {
+        const uData = await usersResult.value.json();
+        this.users = (uData.users || []).map(u => ({
+          username: u.username || '',
+          role: u.role || 'viewer',
+          password: '',
+          _existing: true,
+          _deleted: false,
+        }));
+      } catch {}
+    }
+
+    try {
+      const data = await settingsResult.value.json();
       this.original = this.flattenSections(data.sections);
       this.dirty = {};
       this.renderSections(el, data.sections);
     } catch (e) {
       el.innerHTML = `
-        <div class="tab-header"><h2>Settings</h2><p>Configure Honcho server models and providers</p></div>
+        <div class="tab-header"><h2>Settings</h2><p>Configure dashboard access and Honcho server models</p></div>
         <div class="empty-state">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
           <h3>Failed to load settings</h3>
@@ -1838,6 +1889,9 @@ const SettingsTab = {
 
     let html = '<div class="flex flex-col gap-2">';
 
+    // Dashboard Credentials section (at the very top)
+    html += this.renderCredentialsSection();
+
     for (const def of sectionDefs) {
       const sectionData = sections[def.key];
       const dirtyKeys = this.getSectionDirtyKeys(def.key, sectionData);
@@ -1876,6 +1930,54 @@ const SettingsTab = {
     el.innerHTML = html;
     this.bindEvents(el);
     this.updateDirtyIndicators(el);
+  },
+
+  renderCredentialsSection() {
+    const visibleUsers = this.users.filter(u => !u._deleted);
+    const rows = visibleUsers.map((u, idx) => {
+      const isNew = !u._existing;
+      const displayName = isNew ? '' : App.escapeHtml(u.username);
+      const pwPlaceholder = isNew ? '' : '••••';
+      return `
+        <div class="credentials-row" data-credential-idx="${idx}">
+          <input type="text" class="input" placeholder="username" value="${displayName}" data-cred-field="username" ${u._existing ? 'readonly' : ''}>
+          <select class="input" data-cred-field="role">
+            <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+            <option value="editor" ${u.role === 'editor' ? 'selected' : ''}>Editor</option>
+            <option value="viewer" ${u.role === 'viewer' ? 'selected' : ''}>Viewer</option>
+          </select>
+          <input type="password" class="input" placeholder="${pwPlaceholder}" value="" data-cred-field="password">
+          <button class="btn-delete-inline" data-action="credential-delete" data-credential-idx="${idx}" title="Remove user">&times;</button>
+        </div>
+      `;
+    }).join('');
+
+    const noUsers = visibleUsers.length === 0
+      ? '<div class="text-sm text-muted" style="padding:8px 0">No users configured. Add a user to enable dashboard access.</div>'
+      : '';
+
+    return `
+      <div class="accordion open" data-section="credentials">
+        <div class="accordion-header" data-action="toggle-accordion">
+          <div class="flex items-center gap-2">
+            <span>🔐 Dashboard Access</span>
+          </div>
+          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+        <div class="accordion-body">
+          <div class="accordion-content">
+            <div class="credentials-list" id="credentials-list">
+              ${rows}
+            </div>
+            ${noUsers}
+            <div class="flex gap-2 mt-3">
+              <button class="btn btn-ghost" data-action="credential-add">+ Add User</button>
+              <button class="btn btn-primary" data-action="credential-save">Save Credentials</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
   },
 
   getSectionDirtyKeys(sectionKey, sectionData) {
@@ -1949,6 +2051,138 @@ const SettingsTab = {
     }
 
     return '';
+  },
+
+  addUser() {
+    // Before adding, save any current form state
+    this.collectUsersFromDOM();
+    this.users.push({ username: '', role: 'viewer', password: '', _existing: false, _deleted: false });
+    this.renderCredentialList();
+  },
+
+  deleteUser(idx) {
+    this.collectUsersFromDOM();
+    const visibleUsers = this.users.filter(u => !u._deleted);
+    const target = visibleUsers[idx];
+    if (target) {
+      if (target._existing) {
+        target._deleted = true;
+      } else {
+        // Remove brand-new users entirely
+        const realIdx = this.users.indexOf(target);
+        this.users.splice(realIdx, 1);
+      }
+    }
+    this.renderCredentialList();
+  },
+
+  collectUsersFromDOM() {
+    const visibleUsers = this.users.filter(u => !u._deleted);
+    const rows = document.querySelectorAll('.credentials-row');
+    rows.forEach((row, idx) => {
+      const u = visibleUsers[idx];
+      if (!u) return;
+      const usernameInput = row.querySelector('[data-cred-field="username"]');
+      const roleSelect = row.querySelector('[data-cred-field="role"]');
+      const passwordInput = row.querySelector('[data-cred-field="password"]');
+      if (usernameInput) u.username = usernameInput.value.trim();
+      if (roleSelect) u.role = roleSelect.value;
+      if (passwordInput && passwordInput.value) u.password = passwordInput.value;
+    });
+  },
+
+  renderCredentialList() {
+    const container = document.getElementById('credentials-list');
+    if (!container) return;
+    const visibleUsers = this.users.filter(u => !u._deleted);
+    if (visibleUsers.length === 0) {
+      container.innerHTML = '';
+      // Also re-render to show the "no users" message
+      const section = container.closest('[data-section="credentials"]');
+      if (section) {
+        const content = section.querySelector('.accordion-content');
+        if (content) {
+          // Replace just the list and no-users msg
+          const existingMsg = content.querySelector('.text-sm.text-muted');
+          if (existingMsg) existingMsg.remove();
+          const msg = document.createElement('div');
+          msg.className = 'text-sm text-muted';
+          msg.style.cssText = 'padding:8px 0';
+          msg.textContent = 'No users configured. Add a user to enable dashboard access.';
+          content.insertBefore(msg, content.querySelector('.flex.gap-2.mt-3'));
+        }
+      }
+      return;
+    }
+    container.innerHTML = visibleUsers.map((u, idx) => {
+      const isNew = !u._existing;
+      const displayName = isNew ? '' : App.escapeHtml(u.username);
+      const pwPlaceholder = isNew ? '' : '••••';
+      return `
+        <div class="credentials-row" data-credential-idx="${idx}">
+          <input type="text" class="input" placeholder="username" value="${displayName}" data-cred-field="username" ${u._existing ? 'readonly' : ''}>
+          <select class="input" data-cred-field="role">
+            <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+            <option value="editor" ${u.role === 'editor' ? 'selected' : ''}>Editor</option>
+            <option value="viewer" ${u.role === 'viewer' ? 'selected' : ''}>Viewer</option>
+          </select>
+          <input type="password" class="input" placeholder="${pwPlaceholder}" value="" data-cred-field="password">
+          <button class="btn-delete-inline" data-action="credential-delete" data-credential-idx="${idx}" title="Remove user">&times;</button>
+        </div>
+      `;
+    }).join('');
+    // Remove "no users" message if present
+    const section = container.closest('[data-section="credentials"]');
+    if (section) {
+      const noMsg = section.querySelector('.accordion-content > .text-sm.text-muted');
+      if (noMsg) noMsg.remove();
+    }
+    // Re-bind delete buttons
+    container.querySelectorAll('[data-action="credential-delete"]').forEach(btn => {
+      btn.addEventListener('click', () => this.deleteUser(parseInt(btn.dataset.credentialIdx)));
+    });
+  },
+
+  async saveUsers() {
+    this.collectUsersFromDOM();
+    // Filter out users with no username (empty new rows)
+    const payload = this.users
+      .filter(u => !u._deleted && u.username)
+      .map(u => {
+        const entry = { username: u.username, role: u.role };
+        // Only send password if it was changed (not the placeholder)
+        if (u.password && u.password !== '••••') {
+          entry.password = u.password;
+        }
+        return entry;
+      });
+
+    try {
+      const res = await fetch('/api/settings/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ users: payload }),
+      });
+      if (!res.ok) throw new Error(`Save failed (${res.status})`);
+
+      // Refresh users from server
+      const freshRes = await fetch('/api/settings/users');
+      if (freshRes.ok) {
+        const freshData = await freshRes.json();
+        this.users = (freshData.users || []).map(u => ({
+          username: u.username || '',
+          role: u.role || 'viewer',
+          password: '',
+          _existing: true,
+          _deleted: false,
+        }));
+      }
+      this.usersDirty = false;
+      App.toast('Credentials saved', 'success');
+      this.renderCredentialList();
+    } catch (e) {
+      App.toast(`Failed to save credentials: ${e.message}`, 'error');
+    }
   },
 
   renderMergeSection() {
@@ -2256,6 +2490,14 @@ const SettingsTab = {
     // Merge event handlers
     el.querySelector('[data-action="merge-preview"]')?.addEventListener('click', () => this.previewMerge());
     el.querySelector('[data-action="merge-execute"]')?.addEventListener('click', () => this.executeMerge());
+
+    // Credentials event handlers
+    el.querySelector('[data-action="credential-add"]')?.addEventListener('click', () => this.addUser());
+    el.querySelector('[data-action="credential-save"]')?.addEventListener('click', () => this.saveUsers());
+
+    el.querySelectorAll('[data-action="credential-delete"]').forEach(btn => {
+      btn.addEventListener('click', () => this.deleteUser(parseInt(btn.dataset.credentialIdx)));
+    });
   },
 
   updateDirtyIndicators(el) {

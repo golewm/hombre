@@ -1076,3 +1076,35 @@ tr:hover .btn-delete-inline {
 .merge-conflict-list code {
   font-size: 11px;
 }
+
+/* ─── Credentials Section ─── */
+.credentials-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.credentials-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.credentials-row input[data-cred-field="username"],
+.credentials-row select[data-cred-field="role"] {
+  font-size: 12px;
+}
+
+.credentials-row input[data-cred-field="username"] {
+  flex: 2;
+}
+
+.credentials-row select[data-cred-field="role"] {
+  flex: 1;
+  max-width: 130px;
+}
+
+.credentials-row input[data-cred-field="password"] {
+  flex: 2;
+  font-size: 12px;
+}

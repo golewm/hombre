@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from routes.supabase import get_admin_client, is_admin_configured
+from routes.security import _users_cache, ROLE_PERMISSIONS
 
 log = logging.getLogger("hombre")
 
@@ -302,3 +303,88 @@ async def restart_containers(request: Request):
         raise HTTPException(status_code=500, detail="compose_restart_timeout")
     except FileNotFoundError:
         raise HTTPException(status_code=500, detail="docker_not_found")
+
+
+# ---------------------------------------------------------------------------
+# Dashboard user management
+# ---------------------------------------------------------------------------
+
+class DashboardUser(BaseModel):
+    username: str
+    password: str
+    role: str
+
+
+class DashboardUsersRequest(BaseModel):
+    users: list[DashboardUser]
+
+
+def _write_dashboard_users_to_env(users: list[DashboardUser]) -> None:
+    """Write the DASHBOARD_USERS env var to the Honcho .env file."""
+    env_path = Path(HONCHO_ENV_PATH)
+    if not env_path.exists():
+        raise HTTPException(status_code=404, detail="env_file_not_found")
+
+    entries = ",".join([f"{u.username}:{u.password}:{u.role}" for u in users])
+    new_line = f"DASHBOARD_USERS={entries}"
+
+    content = env_path.read_text()
+    pattern = r"^DASHBOARD_USERS=.*$"
+    if re.search(pattern, content, re.MULTILINE):
+        content = re.sub(pattern, new_line, content, flags=re.MULTILINE)
+    else:
+        content = content.rstrip() + "\n" + new_line + "\n"
+
+    backup_path = env_path.parent / (env_path.name + ".bak")
+    shutil.copy2(env_path, backup_path)
+    env_path.write_text(content)
+
+
+@router.get("/users")
+async def list_users(request: Request):
+    """List current dashboard users (passwords masked)."""
+    user = _get_user(request)
+    permissions = getattr(request.state, "permissions", set())
+    if "settings" not in permissions:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+    result = []
+    for uname, info in _users_cache.items():
+        result.append({
+            "username": uname,
+            "password": "••••",
+            "role": info["role"],
+        })
+
+    _audit("settings.users.read", user=user)
+    return {"users": result}
+
+
+@router.post("/users")
+async def update_users(req: DashboardUsersRequest, request: Request):
+    """Update dashboard users — writes env file + updates in-memory cache."""
+    user = _get_user(request)
+    permissions = getattr(request.state, "permissions", set())
+    if "settings" not in permissions:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+    _require_env_path()
+
+    # Validate roles
+    for u in req.users:
+        if u.role not in ROLE_PERMISSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"invalid_role: {u.role} (valid: {', '.join(sorted(ROLE_PERMISSIONS))})",
+            )
+
+    # Persist to .env file
+    _write_dashboard_users_to_env(req.users)
+
+    # Update the in-memory cache (same dict object the middleware references)
+    _users_cache.clear()
+    for u in req.users:
+        _users_cache[u.username] = {"password": u.password, "role": u.role}
+
+    _audit("settings.users.write", user=user, detail=f"users={[u.username for u in req.users]}")
+    return {"status": "ok", "count": len(req.users)}

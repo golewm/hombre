@@ -55,8 +55,8 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
 
 # Rate limits: (requests_per_minute, path_prefix)
 RATE_LIMITS: list[tuple[int, str]] = [
-    (5,   "/api/settings/"),
-    (5,   "/api/workspaces/"),  # covers deletes (expensive)
+    (30,  "/api/settings/"),
+    (30,  "/api/workspaces/"),
     (30,  "/api/peers/"),
     (30,  "/api/sessions/"),
     (30,  "/api/messages/"),
@@ -170,9 +170,14 @@ class AccessLogger:
 # User store (parsed from env)
 # ---------------------------------------------------------------------------
 
+_users_cache: dict[str, dict[str, str]] = {}
+
+
 def _parse_users() -> dict[str, dict[str, str]]:
     """
-    Build users dict from environment.
+    Build users dict from environment and populate the module-level
+    ``_users_cache`` so that other modules (e.g. settings routes) can
+    read / mutate the same dict.
 
     Supports two modes:
       1. Single user:  DASHBOARD_USER + DASHBOARD_PASSWORD + DASHBOARD_ROLE
@@ -203,7 +208,12 @@ def _parse_users() -> dict[str, dict[str, str]]:
                 role = "admin"
             users[user] = {"password": pwd, "role": role}
 
-    return users
+    # Update the module-level cache in-place so that every holder of a
+    # reference to ``_users_cache`` (including RoleBasedAuthMiddleware)
+    # sees the new data.
+    _users_cache.clear()
+    _users_cache.update(users)
+    return _users_cache
 
 
 # ---------------------------------------------------------------------------
@@ -347,8 +357,12 @@ class RoleBasedAuthMiddleware(BaseHTTPMiddleware):
         return required in permissions
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # Skip health and static
-        if request.url.path.startswith("/static") or request.url.path == "/api/health":
+        # Skip health, static, and index
+        if (
+            request.url.path.startswith("/static")
+            or request.url.path == "/api/health"
+            or request.url.path == "/"
+        ):
             return await call_next(request)
 
         # No users configured → open access
@@ -448,8 +462,12 @@ class SupabaseAuthMiddleware(BaseHTTPMiddleware):
         if not supabase_configured():
             return await call_next(request)
 
-        # Skip health and static
-        if request.url.path.startswith("/static") or request.url.path == "/api/health":
+        # Skip health, static, and index
+        if (
+            request.url.path.startswith("/static")
+            or request.url.path == "/api/health"
+            or request.url.path == "/"
+        ):
             return await call_next(request)
 
         # Get Authorization header
