@@ -1430,6 +1430,7 @@ const ConclusionsTab = {
     limit: 20,
     allLoaded: false,
     currentPeerId: null,
+    currentQuery: null,
   },
 
   resetState() {
@@ -1497,6 +1498,7 @@ const ConclusionsTab = {
       const newItems = data.items || [];
       this.state.items = this.state.offset === 0 ? newItems : [...this.state.items, ...newItems];
       this.state.allLoaded = newItems.length < this.state.limit;
+      this.state.currentQuery = null;
       this.renderResults(results, this.state.items);
     } catch {
       results.innerHTML = '<div class="text-sm text-muted">Failed to load conclusions</div>';
@@ -1523,10 +1525,15 @@ const ConclusionsTab = {
         body: { query, top_k: 100, filters: { observer: peerId, observed: peerId } }
       });
       const semanticResults = Array.isArray(semanticItems) ? semanticItems : [];
-      const seenIds = new Set(semanticResults.map(c => c.id));
+
+      // Filter semantic results to only keep items that actually contain the keyword
+      const queryLower = query.toLowerCase();
+      const filteredSemanticResults = semanticResults.filter(item =>
+        item.content && item.content.toLowerCase().includes(queryLower)
+      );
+      const filteredIds = new Set(filteredSemanticResults.map(c => c.id));
 
       // Step 2: Paginate through ALL conclusions and find text matches
-      const queryLower = query.toLowerCase();
       const extraMatches = [];
       let offset = 0;
       const pageSize = 50;
@@ -1540,23 +1547,32 @@ const ConclusionsTab = {
         const items = data.items || [];
 
         for (const item of items) {
-          if (!seenIds.has(item.id) && item.content && item.content.toLowerCase().includes(queryLower)) {
+          if (!filteredIds.has(item.id) && item.content && item.content.toLowerCase().includes(queryLower)) {
             extraMatches.push(item);
-            seenIds.add(item.id);
+            filteredIds.add(item.id);
           }
         }
         offset += pageSize;
       }
 
-      // Combine: semantic results first, then additional text matches
-      const allResults = [...semanticResults, ...extraMatches];
+      // Combine: filtered semantic results first (more relevant), then additional text matches
+      const allResults = [...filteredSemanticResults, ...extraMatches];
       this.state.items = allResults;
       this.state.allLoaded = true;
       this.state.offset = 0;
+      this.state.currentQuery = query;
       this.renderResults(results, allResults);
     } catch {
       results.innerHTML = '<div class="text-sm text-muted">Search failed</div>';
     }
+  },
+
+  highlightKeyword(text, keyword) {
+    if (!text || !keyword) return App.escapeHtml(text);
+    const escaped = App.escapeHtml(text);
+    const escapedKeyword = App.escapeHtml(keyword).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escapedKeyword})`, 'gi');
+    return escaped.replace(regex, '<mark class="search-highlight">$1</mark>');
   },
 
   renderResults(container, items) {
@@ -1568,6 +1584,8 @@ const ConclusionsTab = {
         </div>`;
       return;
     }
+
+    const query = this.state.currentQuery;
 
     const loadMoreHtml = this.state.allLoaded ? '' : `
       <div class="load-more-wrap">
@@ -1581,6 +1599,7 @@ const ConclusionsTab = {
         ${items.map((c, idx) => {
           const type = this.guessType(c.content);
           const cid = c.id || `c-${idx}`;
+          const contentHtml = query ? this.highlightKeyword(c.content, query) : App.escapeHtml(c.content);
           return `
             <div class="card" data-conclusion-id="${App.escapeAttr(cid)}">
               <div class="card-header">
@@ -1593,7 +1612,7 @@ const ConclusionsTab = {
                 </div>
                 <button class="btn-delete-inline" data-action="delete-conclusion" data-id="${App.escapeAttr(cid)}" title="Delete conclusion">&times;</button>
               </div>
-              <div style="font-size:12px;line-height:1.6;color:var(--text)">${App.escapeHtml(c.content)}</div>
+              <div style="font-size:12px;line-height:1.6;color:var(--text)">${contentHtml}</div>
               <div class="mt-2 flex gap-2">
                 <span class="text-xs text-muted">Observer: <code>${App.escapeHtml(c.observer_id)}</code></span>
                 <span class="text-xs text-muted">Observed: <code>${App.escapeHtml(c.observed_id)}</code></span>

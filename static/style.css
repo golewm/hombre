@@ -1158,3 +1158,11 @@ tr:hover .btn-delete-inline {
   flex: 2;
   font-size: 12px;
 }
+
+/* ─── Search Highlight ─── */
+.search-highlight {
+  background: rgba(245, 158, 11, 0.3);
+  color: var(--text);
+  border-radius: 2px;
+  padding: 0 2px;
+}
