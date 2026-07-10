@@ -1518,14 +1518,42 @@ const ConclusionsTab = {
     results.innerHTML = '<div class="loading-overlay"><div class="spinner"></div> Searching...</div>';
 
     try {
-      const items = await App.api(`workspaces/${ws.id}/conclusions/query`, {
+      // Step 1: Semantic search for top 100 most relevant
+      const semanticItems = await App.api(`workspaces/${ws.id}/conclusions/query`, {
         body: { query, top_k: 100, filters: { observer: peerId, observed: peerId } }
       });
-      const resultItems = Array.isArray(items) ? items : [];
-      this.state.items = resultItems;
+      const semanticResults = Array.isArray(semanticItems) ? semanticItems : [];
+      const seenIds = new Set(semanticResults.map(c => c.id));
+
+      // Step 2: Paginate through ALL conclusions and find text matches
+      const queryLower = query.toLowerCase();
+      const extraMatches = [];
+      let offset = 0;
+      const pageSize = 50;
+      let totalPages = 1;
+
+      for (let page = 0; page < totalPages; page++) {
+        const data = await App.api(`workspaces/${ws.id}/conclusions/list`, {
+          body: { filters: { observer_id: peerId, observed_id: peerId }, limit: pageSize, offset }
+        });
+        totalPages = data.pages || 1;
+        const items = data.items || [];
+
+        for (const item of items) {
+          if (!seenIds.has(item.id) && item.content && item.content.toLowerCase().includes(queryLower)) {
+            extraMatches.push(item);
+            seenIds.add(item.id);
+          }
+        }
+        offset += pageSize;
+      }
+
+      // Combine: semantic results first, then additional text matches
+      const allResults = [...semanticResults, ...extraMatches];
+      this.state.items = allResults;
       this.state.allLoaded = true;
       this.state.offset = 0;
-      this.renderResults(results, resultItems);
+      this.renderResults(results, allResults);
     } catch {
       results.innerHTML = '<div class="text-sm text-muted">Search failed</div>';
     }
