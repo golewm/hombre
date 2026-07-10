@@ -2588,16 +2588,70 @@ const SettingsTab = {
   },
 
   async restore(el) {
-    Modal.confirm('Restore Backup', 'Restore the previous .env configuration and restart containers?', async () => {
-      try {
-        await fetch('/api/settings/restore', { method: 'POST' });
-        Modal.close();
-        await fetch('/api/settings/restart', { method: 'POST' });
-        setTimeout(() => this.render(el), 3000);
-      } catch {
-        Modal.close();
+    try {
+      const res = await fetch('/api/settings/backups');
+      if (!res.ok) throw new Error('Failed to list backups');
+      const data = await res.json();
+      const backups = data.backups || [];
+
+      if (backups.length === 0) {
+        App.toast('No backups found', 'warning');
+        return;
       }
-    });
+
+      // Build backup list for modal
+      const listDiv = document.createElement('div');
+      listDiv.className = 'backup-list';
+      backups.forEach((b, idx) => {
+        const item = document.createElement('label');
+        item.className = 'backup-item';
+        item.innerHTML = `
+          <input type="radio" name="backup-pick" value="${App.escapeAttr(b.filename)}" ${idx === 0 ? 'checked' : ''}>
+          <div class="backup-info">
+            <div class="backup-name">${App.escapeHtml(b.filename)}</div>
+            <div class="backup-meta">${App.formatDateTime(b.modified)} &middot; ${(b.size / 1024).toFixed(1)} KB</div>
+          </div>
+        `;
+        listDiv.appendChild(item);
+      });
+
+      Modal.show('Restore Backup', [
+        listDiv,
+        (() => {
+          const note = document.createElement('div');
+          note.className = 'text-xs text-muted mt-2';
+          note.textContent = 'Select a backup and confirm. The server will restart after restoring.';
+          return note;
+        })(),
+      ], async () => {
+        const selected = document.querySelector('input[name="backup-pick"]:checked');
+        if (!selected) return;
+        const filename = selected.value;
+
+        Modal.close();
+
+        // Show progress
+        const progressDiv = document.createElement('div');
+        progressDiv.innerHTML = '<div class="loading-overlay"><div class="spinner"></div> Restoring...</div>';
+        document.getElementById('modal-root').appendChild(progressDiv);
+
+        try {
+          await fetch('/api/settings/restore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename }),
+          });
+          progressDiv.innerHTML = '<div class="loading-overlay"><div class="spinner"></div> Restarting...</div>';
+          await fetch('/api/settings/restart', { method: 'POST' });
+          setTimeout(() => this.render(el), 3000);
+        } catch {
+          progressDiv.remove();
+          App.toast('Restore failed', 'error');
+        }
+      }, { confirmText: 'Restore' });
+    } catch (e) {
+      App.toast(`Failed to load backups: ${e.message}`, 'error');
+    }
   }
 };
 

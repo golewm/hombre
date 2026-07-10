@@ -67,23 +67,34 @@ def validate_export_format(data: dict) -> tuple[bool, str]:
     return True, ""
 
 
-async def _honcho_request(method: str, path: str, body: Any = None) -> Any:
-    """Make a request to the Honcho API through the app's httpx client.
+def _get_honcho_client():
+    """Get the httpx client from the running app module.
 
-    Late-imports _client from app to avoid circular imports.
+    When run as ``python app.py``, the module is registered as ``__main__``
+    in sys.modules, not ``app``.  We check both to find the live client.
     """
-    from app import _client
+    import sys
 
-    if _client is None:
+    for key in ("app", "__main__"):
+        mod = sys.modules.get(key)
+        if mod is not None and getattr(mod, "_client", None) is not None:
+            return mod._client
+    return None
+
+
+async def _honcho_request(method: str, path: str, body: Any = None) -> Any:
+    """Make a request to the Honcho API through the app's httpx client."""
+    client = _get_honcho_client()
+    if client is None:
         raise HTTPException(status_code=503, detail="honcho_client_not_ready")
 
     try:
         if method == "GET":
-            resp = await _client.get(path)
+            resp = await client.get(path)
         elif method == "POST":
-            resp = await _client.post(path, json=body or {})
+            resp = await client.post(path, json=body or {})
         elif method == "DELETE":
-            resp = await _client.delete(path)
+            resp = await client.delete(path)
         else:
             raise HTTPException(status_code=400, detail=f"unsupported_method: {method}")
 

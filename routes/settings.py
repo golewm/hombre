@@ -272,17 +272,53 @@ async def create_backup(request: Request):
     return {"status": "backed up", "backup_path": str(backup_path)}
 
 
+@router.get("/backups")
+async def list_backups(request: Request):
+    """List all .bak files in the backup directory."""
+    _require_env_path()
+    user = _get_user(request)
+
+    if not BACKUP_DIR.exists():
+        return {"backups": []}
+
+    backups = []
+    for f in sorted(BACKUP_DIR.iterdir()):
+        if f.suffix == ".bak" and f.is_file():
+            stat = f.stat()
+            backups.append({
+                "filename": f.name,
+                "size": stat.st_size,
+                "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            })
+
+    _audit("settings.backups.list", user=user)
+    return {"backups": backups}
+
+
+class RestoreRequest(BaseModel):
+    filename: str | None = None
+
+
 @router.post("/restore")
-async def restore_backup(request: Request):
+async def restore_backup(request: Request, body: RestoreRequest | None = None):
     _require_env_path()
     user = _get_user(request)
     env_path = Path(HONCHO_ENV_PATH)
-    backup_path = BACKUP_DIR / (env_path.name + ".bak")
+
+    if body and body.filename:
+        # Validate filename to prevent path traversal
+        filename = Path(body.filename).name
+        if ".." in filename or "/" in filename or "\\" in filename:
+            raise HTTPException(status_code=400, detail="invalid_filename")
+        backup_path = BACKUP_DIR / filename
+    else:
+        backup_path = BACKUP_DIR / (env_path.name + ".bak")
+
     if not backup_path.exists():
         raise HTTPException(status_code=404, detail="backup_not_found")
     shutil.copy2(backup_path, env_path)
-    _audit("settings.restore", user=user)
-    return {"status": "restored"}
+    _audit("settings.restore", user=user, detail=f"file={backup_path.name}")
+    return {"status": "restored", "file": backup_path.name}
 
 
 @router.post("/restart")
