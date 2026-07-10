@@ -153,7 +153,9 @@ def write_env_file(path: str, data: dict) -> None:
     if invalid_keys:
         raise HTTPException(status_code=400, detail=f"invalid_keys: {', '.join(sorted(invalid_keys))}")
 
-    backup_path = env_path.parent / (env_path.name + ".bak")
+    # Backup to writable directory before modifying
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    backup_path = BACKUP_DIR / (env_path.name + ".bak")
     shutil.copy2(env_path, backup_path)
 
     content = env_path.read_text()
