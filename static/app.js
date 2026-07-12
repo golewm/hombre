@@ -410,26 +410,28 @@ const App = {
   initSyncIndicator() {
     const indicator = document.createElement('div');
     indicator.id = 'sidebar-sync-indicator';
-    indicator.style.cssText = 'padding:8px 12px;border-top:1px solid var(--border)';
     indicator.innerHTML = `
-      <div style="cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12px" id="sync-indicator-summary">
+      <div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:6px">
         <span id="sidebar-sync-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text-dim);flex-shrink:0"></span>
-        <span id="sidebar-sync-text" style="color:var(--text-dim)">Sync: checking...</span>
+        <span id="sidebar-sync-text" style="color:var(--text-dim)">Checking sync...</span>
       </div>
-      <div id="sidebar-sync-details" style="display:none;padding-top:6px;font-size:11px;color:var(--text-dim)"></div>
+      <div id="sidebar-sync-details" style="font-size:11px;color:var(--text-dim)"></div>
     `;
 
     const footer = document.querySelector('.sidebar-footer');
     footer.parentNode.insertBefore(indicator, footer);
 
-    document.getElementById('sync-indicator-summary').addEventListener('click', () => {
-      const details = document.getElementById('sidebar-sync-details');
-      if (details.style.display === 'none') {
-        details.style.display = 'block';
-        this.refreshSyncIndicator();
-      } else {
-        details.style.display = 'none';
-      }
+    // Hide standalone health dot — combined status shown in sync indicator
+    const healthRow = document.querySelector('.sidebar-footer > .flex.items-center.gap-2');
+    if (healthRow) healthRow.style.display = 'none';
+
+    // Event delegation for sync actions
+    indicator.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      if (action === 'sync-trigger') SettingsTab.triggerSync();
+      else if (action === 'sync-refresh') this.refreshSyncIndicator();
     });
 
     this.refreshSyncIndicator();
@@ -446,12 +448,12 @@ const App = {
     if (!ws) {
       dot.style.background = 'var(--text-dim)';
       text.textContent = 'No workspace';
+      if (details) details.innerHTML = '';
       return;
     }
 
     try {
       const data = await this.api(`sync/status/${ws.id}`, { method: 'GET' });
-      const lastSync = data.last_sync || data.last_dream || null;
       const repPending = parseInt(data.representation_tasks_pending ?? data.deriver_pending ?? 0, 10) || 0;
       const sumPending = parseInt(data.summary_tasks_pending ?? 0, 10) || 0;
       const dreamPending = parseInt(data.dream_tasks_pending ?? 0, 10) || 0;
@@ -459,39 +461,30 @@ const App = {
 
       if (totalPending > 0) {
         dot.style.background = 'var(--amber)';
-        text.textContent = `Syncing... (${totalPending})`;
+        text.textContent = `Syncing (${totalPending} tasks)`;
       } else {
         dot.style.background = 'var(--green)';
-        text.textContent = 'Synced';
+        text.textContent = 'Connected & Synced';
       }
 
       if (details) {
         details.innerHTML = `
-          <div style="margin-bottom:4px">Last sync: ${lastSync ? this.formatDateTime(lastSync) : 'Never'}</div>
           <div style="display:flex;gap:8px;margin-bottom:6px">
             <span>Rep: ${repPending}</span>
             <span>Sum: ${sumPending}</span>
             <span>Dream: ${dreamPending}</span>
           </div>
-          <button class="btn btn-ghost btn-sm w-full" id="sidebar-sync-trigger-btn" style="font-size:11px;padding:4px 8px">Sync Now</button>
+          <button class="btn btn-ghost btn-sm w-full" data-action="sync-trigger" style="font-size:11px;padding:4px 8px">Sync Now</button>
         `;
-        document.getElementById('sidebar-sync-trigger-btn')?.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          try {
-            const observer = (this.state.peers && this.state.peers.length > 0) ? this.state.peers[0].id : undefined;
-            await this.api('sync/trigger', { body: { workspace_id: ws.id, observer, dream_type: 'omni' } });
-            this.toast('Sync triggered', 'success');
-            setTimeout(() => this.refreshSyncIndicator(), 2000);
-          } catch (err) {
-            this.toast(`Sync failed: ${err.message}`, 'error');
-          }
-        });
       }
     } catch {
       dot.style.background = 'var(--destructive)';
       text.textContent = 'Offline';
       if (details) {
-        details.innerHTML = '<div style="color:var(--destructive)">Honcho unreachable</div>';
+        details.innerHTML = `
+          <div style="color:var(--destructive);margin-bottom:6px">Honcho unreachable</div>
+          <button class="btn btn-ghost btn-sm w-full" data-action="sync-trigger" style="font-size:11px;padding:4px 8px">Sync Now</button>
+        `;
       }
     }
   },
@@ -3170,25 +3163,31 @@ const SettingsTab = {
       return;
     }
 
-    const btn = document.getElementById('sync-trigger-btn');
-    if (btn) {
+    // Update all sync trigger buttons (sidebar + settings tab)
+    const syncBtns = document.querySelectorAll('[data-action="sync-trigger"]');
+    const originalContents = [];
+    syncBtns.forEach(btn => {
+      originalContents.push(btn.innerHTML);
       btn.disabled = true;
       btn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:1.5px"></div> Syncing...';
-    }
+    });
 
     try {
       const observer = (App.state.peers && App.state.peers.length > 0) ? App.state.peers[0].id : undefined;
       await App.api('sync/trigger', { body: { workspace_id: ws.id, observer, dream_type: 'omni' } });
       App.toast('Sync triggered successfully', 'success');
-      // Auto-refresh status after a short delay
-      setTimeout(() => this.refreshSyncStatus(), 2000);
+      // Auto-refresh sidebar indicator and settings tab status
+      setTimeout(() => {
+        App.refreshSyncIndicator();
+        if (typeof SettingsTab.refreshSyncStatus === 'function') SettingsTab.refreshSyncStatus();
+      }, 2000);
     } catch (e) {
       App.toast(`Sync failed: ${e.message}`, 'error');
     } finally {
-      if (btn) {
+      syncBtns.forEach((btn, i) => {
         btn.disabled = false;
-        btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9"/></svg> Sync Now';
-      }
+        btn.innerHTML = originalContents[i];
+      });
     }
   },
 

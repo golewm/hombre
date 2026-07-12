@@ -154,6 +154,12 @@ a:hover { color: var(--accent-hover); }
   color: var(--text-muted);
 }
 
+/* ─── Sidebar Sync Indicator ─── */
+#sidebar-sync-indicator {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+
 /* ─── Main ─── */
 .main {
   flex: 1;
