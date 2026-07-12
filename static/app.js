@@ -2216,6 +2216,9 @@ const SettingsTab = {
     // Workspace Merge section (between advanced and sticky bar)
     html += this.renderMergeSection();
 
+    // Sync section
+    html += this.renderSyncSection();
+
     html += `
       <div class="settings-sticky-bar">
         <button class="btn btn-ghost" data-action="settings-backup">Create Backup</button>
