@@ -328,7 +328,7 @@ const App = {
     const container = document.getElementById('auth-section');
     if (!container) return;
 
-    if (!this.state.supabaseConfigured) {
+    if (!this.state.supabaseConfigured || !this.state.user) {
       container.innerHTML = '';
       container.classList.add('hidden');
       return;
@@ -336,21 +336,15 @@ const App = {
 
     container.classList.remove('hidden');
 
-    if (this.state.user) {
-      const email = this.state.user.email || 'user';
-      const initials = email.charAt(0).toUpperCase();
-      container.innerHTML = `
-        <div class="auth-user">
-          <div class="auth-avatar">${this.escapeHtml(initials)}</div>
-          <span class="auth-name">${this.escapeHtml(email)}</span>
-        </div>
-        <button class="btn btn-ghost btn-sm w-full" data-action="logout">Sign Out</button>
-      `;
-    } else {
-      container.innerHTML = `
-        <button class="btn btn-ghost btn-sm w-full" data-action="show-login">Sign In</button>
-      `;
-    }
+    const email = this.state.user.email || 'user';
+    const initials = email.charAt(0).toUpperCase();
+    container.innerHTML = `
+      <div class="auth-user">
+        <div class="auth-avatar">${this.escapeHtml(initials)}</div>
+        <span class="auth-name">${this.escapeHtml(email)}</span>
+      </div>
+      <button class="btn btn-ghost btn-sm w-full" data-action="logout">Sign Out</button>
+    `;
   },
 
   formatDate(iso) {
@@ -418,6 +412,10 @@ const App = {
     indicator.id = 'sidebar-sync-indicator';
     indicator.innerHTML = `
       <div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:6px">
+        <span id="sidebar-conn-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text-dim);flex-shrink:0"></span>
+        <span id="sidebar-conn-text" style="color:var(--text-dim)">Checking...</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:6px">
         <span id="sidebar-sync-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text-dim);flex-shrink:0"></span>
         <span id="sidebar-sync-text" style="color:var(--text-dim)">Checking sync...</span>
       </div>
@@ -446,15 +444,48 @@ const App = {
 
   async refreshSyncIndicator() {
     const ws = this.state.workspace;
-    const dot = document.getElementById('sidebar-sync-dot');
-    const text = document.getElementById('sidebar-sync-text');
+    const connDot = document.getElementById('sidebar-conn-dot');
+    const connText = document.getElementById('sidebar-conn-text');
+    const syncDot = document.getElementById('sidebar-sync-dot');
+    const syncText = document.getElementById('sidebar-sync-text');
     const details = document.getElementById('sidebar-sync-details');
-    if (!dot || !text) return;
+    if (!connDot || !syncDot) return;
 
     if (!ws) {
-      dot.style.background = 'var(--text-dim)';
-      text.textContent = 'No workspace';
+      connDot.style.background = 'var(--text-dim)';
+      connText.textContent = 'No workspace';
+      syncDot.style.background = 'var(--text-dim)';
+      syncText.textContent = 'No workspace';
       if (details) details.innerHTML = '';
+      return;
+    }
+
+    // Row 1: Check Honcho health (connection status)
+    let connected = false;
+    try {
+      const hr = await fetch('/api/health');
+      const hd = await hr.json();
+      connected = hd.status === 'ok';
+    } catch {
+      connected = false;
+    }
+
+    if (connected) {
+      connDot.style.background = 'var(--green)';
+      connText.textContent = 'Connected';
+    } else {
+      connDot.style.background = 'var(--destructive)';
+      connText.textContent = 'Unreachable';
+    }
+
+    // Row 2: Check sync queue status
+    if (!connected) {
+      syncDot.style.background = 'var(--text-dim)';
+      syncText.textContent = 'Offline';
+      if (details) details.innerHTML = `
+        <div style="color:var(--destructive);margin-bottom:6px">Honcho unreachable</div>
+        <button class="btn btn-ghost btn-sm w-full" data-action="sync-trigger" style="font-size:11px;padding:4px 8px">Sync Now</button>
+      `;
       return;
     }
 
@@ -466,11 +497,11 @@ const App = {
       const totalPending = repPending + sumPending + dreamPending;
 
       if (totalPending > 0) {
-        dot.style.background = 'var(--amber)';
-        text.textContent = `Syncing (${totalPending} tasks)`;
+        syncDot.style.background = 'var(--amber)';
+        syncText.textContent = `Syncing (${totalPending} tasks)`;
       } else {
-        dot.style.background = 'var(--green)';
-        text.textContent = 'Connected & Synced';
+        syncDot.style.background = 'var(--green)';
+        syncText.textContent = 'Synced';
       }
 
       if (details) {
@@ -484,11 +515,11 @@ const App = {
         `;
       }
     } catch {
-      dot.style.background = 'var(--destructive)';
-      text.textContent = 'Offline';
+      syncDot.style.background = 'var(--destructive)';
+      syncText.textContent = 'Sync error';
       if (details) {
         details.innerHTML = `
-          <div style="color:var(--destructive);margin-bottom:6px">Honcho unreachable</div>
+          <div style="color:var(--destructive);margin-bottom:6px">Failed to check sync status</div>
           <button class="btn btn-ghost btn-sm w-full" data-action="sync-trigger" style="font-size:11px;padding:4px 8px">Sync Now</button>
         `;
       }
