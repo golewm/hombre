@@ -209,7 +209,14 @@ const App = {
 
   async api(path, opts = {}) {
     const method = opts.method || 'POST';
-    const fetchOpts = { method, headers: { 'Content-Type': 'application/json' } };
+    const fetchOpts = {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      // Bypass the HTTP cache for every request so polls always see fresh
+      // data. Safe to set unconditionally — `no-store` is a no-op for
+      // non-cacheable methods/responses (e.g. POST).
+      cache: 'no-store',
+    };
     const token = localStorage.getItem('hombre_auth_token');
     if (token) {
       fetchOpts.headers['Authorization'] = `Bearer ${token}`;
@@ -559,7 +566,7 @@ const App = {
         connected = false;
       } else {
         try {
-          const hr = await fetch(`${window.location.origin}/api/health?_=${Date.now()}`);
+          const hr = await fetch(`${window.location.origin}/api/health`, { cache: 'no-store' });
           const hd = await hr.json();
           connected = hd.status === 'ok';
         } catch {
@@ -599,7 +606,7 @@ const App = {
         return;
       }
 
-      const data = await this.api(`sync/status/${ws.id}?_=${Date.now()}`, { method: 'GET' });
+      const data = await this.api(`sync/status/${ws.id}`, { method: 'GET' });
       const totalPending = parseInt(data.pending_work_units ?? 0, 10) || 0;
       const totalCompleted = parseInt(data.completed_work_units ?? 0, 10) || 0;
       const totalWork = parseInt(data.total_work_units ?? 0, 10) || 0;
