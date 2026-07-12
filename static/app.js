@@ -18,6 +18,7 @@ const App = {
     await this.checkSupabaseAuth();
     await this.checkHealth();
     await this.loadWorkspaces();
+    this.refreshSyncIndicator();
     await this.loadPeersAndSessions();
     this.renderTab('overview');
   },
