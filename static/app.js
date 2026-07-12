@@ -478,7 +478,8 @@ const App = {
         document.getElementById('sidebar-sync-trigger-btn')?.addEventListener('click', async (e) => {
           e.stopPropagation();
           try {
-            await this.api('sync/trigger', { body: { workspace_id: ws.id } });
+            const observer = (this.state.peers && this.state.peers.length > 0) ? this.state.peers[0].id : undefined;
+            await this.api('sync/trigger', { body: { workspace_id: ws.id, observer, dream_type: 'omni' } });
             this.toast('Sync triggered', 'success');
             setTimeout(() => this.refreshSyncIndicator(), 2000);
           } catch (err) {
@@ -3176,7 +3177,8 @@ const SettingsTab = {
     }
 
     try {
-      await App.api('sync/trigger', { body: { workspace_id: ws.id } });
+      const observer = (App.state.peers && App.state.peers.length > 0) ? App.state.peers[0].id : undefined;
+      await App.api('sync/trigger', { body: { workspace_id: ws.id, observer, dream_type: 'omni' } });
       App.toast('Sync triggered successfully', 'success');
       // Auto-refresh status after a short delay
       setTimeout(() => this.refreshSyncStatus(), 2000);

@@ -587,20 +587,50 @@ async def _honcho_request(method: str, path: str, body=None):
 
 class SyncTriggerRequest(BaseModel):
     workspace_id: str
+    observer: str | None = None
+    dream_type: str = "omni"
 
 
 @sync_router.post("/trigger")
 async def trigger_sync(req: SyncTriggerRequest, request: Request):
-    """Trigger a manual sync (schedule_dream) for the specified workspace."""
+    """Trigger a manual sync (schedule_dream) for the specified workspace.
+
+    Honcho requires ``observer`` and ``dream_type`` in the request body.
+    If *observer* is not supplied by the caller we fetch the first peer from
+    the workspace so the user never has to think about it.
+    """
     if not VALID_ID.match(req.workspace_id):
         raise HTTPException(status_code=400, detail="invalid_workspace_id")
 
     user = _get_user(request)
-    _audit("sync.trigger", user=user, detail=f"workspace={req.workspace_id}")
 
-    log.info("Triggering manual sync for workspace %s", req.workspace_id)
+    # --- resolve observer ---------------------------------------------------
+    observer = req.observer
+    if not observer:
+        try:
+            peers_data = await _honcho_request(
+                "POST",
+                f"/v3/workspaces/{req.workspace_id}/peers/list",
+                body={"filters": {}},
+            )
+            items = peers_data.get("items", []) if isinstance(peers_data, dict) else []
+            if items:
+                observer = items[0].get("id", "")
+        except HTTPException:
+            pass  # will be caught below if still empty
+
+    if not observer:
+        raise HTTPException(
+            status_code=400,
+            detail="observer_required: no peers found and none supplied",
+        )
+
+    _audit("sync.trigger", user=user, detail=f"workspace={req.workspace_id} observer={observer}")
+
+    log.info("Triggering manual sync for workspace %s (observer=%s, dream_type=%s)", req.workspace_id, observer, req.dream_type)
     try:
-        result = await _honcho_request("POST", f"/v3/workspaces/{req.workspace_id}/schedule_dream", body={})
+        body = {"observer": observer, "dream_type": req.dream_type}
+        result = await _honcho_request("POST", f"/v3/workspaces/{req.workspace_id}/schedule_dream", body=body)
         return {"status": "sync_triggered", "workspace_id": req.workspace_id, "result": result}
     except HTTPException as e:
         log.warning("Sync trigger failed for %s: %s", req.workspace_id, e.detail)
