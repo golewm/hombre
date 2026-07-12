@@ -13,12 +13,9 @@ const App = {
     this.bindNav();
     this.bindEventDelegation();
     this.bindWorkspaceSelect();
-    // Init sync indicator immediately — don't wait for auth
-    this.initSyncIndicator();
     await this.checkSupabaseAuth();
-    await this.checkHealth();
     await this.loadWorkspaces();
-    this.refreshSyncIndicator();
+    this.initSyncIndicator();
     await this.loadPeersAndSessions();
     this.renderTab('overview');
   },
@@ -117,19 +114,7 @@ const App = {
   },
 
   async checkHealth() {
-    const dot = document.getElementById('health-dot');
-    const text = document.getElementById('health-text');
-    try {
-      const r = await fetch('/api/health');
-      const d = await r.json();
-      if (d.status === 'ok') {
-        dot.className = 'health-dot ok';
-        text.textContent = 'Connected';
-      } else throw new Error();
-    } catch {
-      dot.className = 'health-dot err';
-      text.textContent = 'Unreachable';
-    }
+    // Health status is now displayed by the sidebar sync indicator
   },
 
   async checkSupabaseAuth() {
@@ -425,10 +410,6 @@ const App = {
 
     const footer = document.querySelector('.sidebar-footer');
     footer.parentNode.insertBefore(indicator, footer);
-
-    // Hide standalone health dot — combined status shown in sync indicator
-    const healthRow = document.querySelector('.sidebar-footer > .flex.items-center.gap-2');
-    if (healthRow) healthRow.style.display = 'none';
 
     // Event delegation for sync actions
     indicator.addEventListener('click', (e) => {
