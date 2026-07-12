@@ -145,9 +145,7 @@ a:hover { color: var(--accent-hover); }
 .nav-item.active svg { opacity: 1; }
 
 .sidebar-footer {
-  margin-top: auto;
-  padding: 16px 20px;
-  border-top: 1px solid var(--border);
+  padding: 12px 20px 4px;
 }
 
 .health-dot {
@@ -171,11 +169,11 @@ a:hover { color: var(--accent-hover); }
 
 /* ─── Sidebar Sync Indicator ─── */
 #sidebar-sync-indicator {
-  padding: 10px 12px 12px;
+  padding: 18px 12px 8px;
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   font-size: 12px;
   transition: opacity 0.2s ease;
 }
@@ -282,7 +280,6 @@ a:hover { color: var(--accent-hover); }
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin: 2px 0 4px;
 }
 
 .sidebar-sync-progress-track {
@@ -393,7 +390,6 @@ a:hover { color: var(--accent-hover); }
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 2px;
 }
 
 .sidebar-sync-updated {
@@ -432,10 +428,6 @@ a:hover { color: var(--accent-hover); }
 .sidebar-sync-refresh-btn.is-loading {
   pointer-events: none;
   opacity: 0.7;
-}
-
-.sidebar-sync-actions {
-  margin-top: 4px;
 }
 
 /* ─── Main ─── */
