@@ -67,6 +67,12 @@ for _level in DIALECTIC_LEVELS:
 AUDIT_LOG_DIR = Path(os.environ.get("HOMBRE_LOG_DIR", "logs"))
 AUDIT_LOG_FILE = AUDIT_LOG_DIR / "audit.log"
 
+# Strong references to in-flight audit tasks. Without this, asyncio.create_task()
+# may garbage-collect the task before it completes (Python destroys tasks that
+# aren't awaited and have no other references). The set is auto-pruned via the
+# done callback below.
+_audit_tasks: set[asyncio.Task] = set()
+
 
 async def _audit(action: str, user: str = "", detail: str = "") -> None:
     """Append an audit entry to the audit log."""
@@ -78,6 +84,24 @@ async def _audit(action: str, user: str = "", detail: str = "") -> None:
 
     # --- File-based logging (always, as backup) ---
     await asyncio.to_thread(_write_audit_file, action, user, detail, now)
+
+
+def _audit_fire_and_forget(action: str, user: str = "", detail: str = "") -> None:
+    """Schedule an audit log write without awaiting it.
+
+    Use this for endpoints that are polled frequently (e.g. the sidebar's
+    sync status check). A slow or unreachable Supabase must never block the
+    user-facing response — the audit log is best-effort, and the file-based
+    backup runs in the same background task.
+
+    Trade-off: if the server shuts down before the task completes, the
+    entry is lost. Acceptable for non-critical events like status polls.
+    The supabase-py client's built-in timeout (~60s with retries) still
+    bounds the worst case for the background task itself.
+    """
+    task = asyncio.create_task(_audit(action, user=user, detail=detail))
+    _audit_tasks.add(task)
+    task.add_done_callback(_audit_tasks.discard)
 
 
 def _write_audit_file(action: str, user: str, detail: str, now: str) -> None:
@@ -649,7 +673,7 @@ async def trigger_sync(req: SyncTriggerRequest, request: Request):
             detail="observer_required: no peers found and none supplied",
         )
 
-    await _audit("sync.trigger", user=user, detail=f"workspace={req.workspace_id} observer={observer}")
+    await _audit_fire_and_forget("sync.trigger", user=user, detail=f"workspace={req.workspace_id} observer={observer}")
 
     log.info("Triggering manual sync for workspace %s (observer=%s, dream_type=%s)", req.workspace_id, observer, req.dream_type)
     try:
@@ -668,7 +692,9 @@ async def sync_status(wid: str, request: Request):
         raise HTTPException(status_code=400, detail="invalid_workspace_id")
 
     user = _get_user(request)
-    await _audit("sync.status", user=user, detail=f"workspace={wid}")
+    # Fire-and-forget: the sidebar polls this endpoint every few seconds.
+    # A slow Supabase audit write must not block the response or the UI stalls.
+    _audit_fire_and_forget("sync.status", user=user, detail=f"workspace={wid}")
 
     try:
         result = await _honcho_request("GET", f"/v3/workspaces/{wid}/queue/status")
